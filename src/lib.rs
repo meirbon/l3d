@@ -36,6 +36,8 @@ impl Display for LoadError {
                     format!("Texture does not exist: {}", file.display()),
                 LoadError::InvalidFile(file) =>
                     format!("File might be corrupted: {}", file.display()),
+                LoadError::NoFileExtension => String::from("No file extension"),
+                LoadError::UnsupportedExtension(ext) => format!("Unsupported file extension: {}", ext)
             }
         )
     }
@@ -83,7 +85,7 @@ impl LoadInstance {
 
     /// Loads file given in LoadOptions
     pub fn load(&self, options: LoadOptions) -> LoadResult {
-        let ext = match load.path.extension() {
+        let ext = match options.path.extension() {
             Some(e) => e,
             None => return LoadResult::None(LoadError::NoFileExtension),
         };

@@ -476,7 +476,7 @@ impl Loader for GltfLoader {
         }
 
         let descriptor = SceneDescriptor {
-            materials,
+            materials: mat_list,
             meshes,
             nodes,
             animations,
