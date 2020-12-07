@@ -250,8 +250,15 @@ impl Loader for ObjLoader {
             }
         }
 
-        let descriptor =
-            MeshDescriptor::new(vertices, normals, uvs, material_ids, mat_manager, None);
+        let descriptor = MeshDescriptor::new(
+            vertices,
+            normals,
+            uvs,
+            None,
+            material_ids,
+            Some(mat_manager),
+            None,
+        );
 
         LoadResult::Mesh(descriptor)
     }
@@ -278,7 +285,7 @@ mod tests {
         let m = match sphere {
             crate::LoadResult::Mesh(m) => m,
             crate::LoadResult::Scene(_) => panic!("Obj loader should only return meshes"),
-            crate::LoadResult::None(_) => panic!("Obj loader should succesfully load meshes"),
+            crate::LoadResult::None(_) => panic!("Obj loader should successfully load meshes"),
         };
 
         // Bounds should be correct

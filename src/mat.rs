@@ -993,9 +993,9 @@ impl Default for TextureDescriptor {
 #[allow(dead_code)]
 impl MaterialList {
     pub fn new() -> MaterialList {
-        let mut materials = Vec::new();
+        let materials = Vec::new();
         // Make sure always a single texture exists (as fallback)
-        let mut textures = Vec::new();
+        let textures = Vec::new();
 
         MaterialList {
             materials,
@@ -1108,7 +1108,6 @@ impl MaterialList {
 
     pub fn push(&mut self, mat: Material) -> usize {
         let i = self.materials.len();
-        let is_light = Vec4::from(mat.color).truncate().cmpgt(Vec3::one()).any();
         self.materials.push(mat);
         i
     }

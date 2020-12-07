@@ -17,6 +17,7 @@ pub enum LoadResult {
 #[derive(Debug, Clone)]
 pub enum LoadError {
     FileDoesNotExist(PathBuf),
+    InvalidFile(PathBuf),
     TextureDoesNotExist(PathBuf),
 }
 
@@ -30,7 +31,8 @@ impl Display for LoadError {
                     format!("File does not exist: {}", file.display()),
                 LoadError::TextureDoesNotExist(file) =>
                     format!("Texture does not exist: {}", file.display()),
-                _ => String::new(),
+                LoadError::InvalidFile(file) =>
+                    format!("File might be corrupted: {}", file.display()),
             }
         )
     }
@@ -50,7 +52,11 @@ impl LoadInstance {
     }
 
     pub fn with_default(mut self) -> Self {
-        // TODO
+        let obj_loader = load::obj::ObjLoader::default();
+        for f in obj_loader.file_extensions() {
+            self.loaders
+                .insert(f, Box::new(load::obj::ObjLoader::default()));
+        }
         self
     }
 

@@ -1,14 +1,13 @@
+use crate::{mat::MaterialList, LoadResult};
+use glam::*;
 use rtbvh::{Bounds, AABB};
 use std::{
     fmt::{Debug, Display},
     path::PathBuf,
 };
 
-use crate::{
-    mat::{Material, MaterialList},
-    LoadResult,
-};
-use glam::*;
+pub mod gltf;
+pub mod obj;
 
 pub trait Loader: Debug {
     fn name(&self) -> &'static str;
@@ -55,28 +54,6 @@ impl Display for VertexMesh {
     }
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub enum InstanceUpdate {
-    None,
-    Transformed,
-    Matrix,
-}
-
-#[derive(Debug, Copy, Clone)]
-pub struct Instance {
-    original_bounds: AABB,
-    bounds: AABB,
-    transform: [f32; 16],
-    inverse: [f32; 16],
-    normal_transform: [f32; 16],
-    translation: [f32; 3],
-    scaling: [f32; 3],
-    rotation: [f32; 4],
-    object_id: Option<u32>,
-    skin_id: Option<u32>,
-    updated: InstanceUpdate,
-}
-
 #[derive(Debug, Clone)]
 pub struct SkinDescriptor {
     pub name: String,
@@ -107,10 +84,38 @@ pub enum Target {
     MorphWeights,
 }
 
+#[derive(Debug, Copy, Clone)]
+pub struct Orthographic {
+    pub x_mag: f32,
+    pub y_mag: f32,
+    pub z_near: f32,
+    pub z_far: f32,
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct Perspective {
+    pub aspect_ratio: Option<f32>,
+    pub y_fov: f32,
+    pub z_near: f32,
+    pub z_far: Option<f32>,
+}
+
+#[derive(Debug, Clone)]
+pub enum Projection {
+    Orthographic(Orthographic),
+    Perspective(Perspective),
+}
+
+#[derive(Debug, Clone)]
+pub struct CameraDescriptor {
+    projection: Projection,
+}
+
 #[derive(Debug, Clone)]
 pub struct NodeDescriptor {
     pub name: String,
     pub child_nodes: Vec<NodeDescriptor>,
+    pub camera: Option<CameraDescriptor>,
 
     pub translation: [f32; 3],
     pub rotation: [f32; 4],
@@ -132,6 +137,7 @@ pub struct Channel {
 
     pub sampler: Method,
     pub vec3s: Vec<[f32; 3]>,
+    /// xyzw quaternion rotations
     pub rotations: Vec<[f32; 4]>,
     pub weights: Vec<f32>,
 
@@ -254,9 +260,9 @@ impl Channel {
                 let dt = t1 - t0;
 
                 let p0 = Vec4::from(self.rotations[k * 3 + 1]);
-                let m0 = Vec4::from(self.rotations[k * 3 + 2]) * (t1 - t0);
+                let m0 = Vec4::from(self.rotations[k * 3 + 2]) * dt;
                 let p1 = Vec4::from(self.rotations[(k + 1) * 3 + 1]);
-                let m1 = Vec4::from(self.rotations[(k + 1) * 3]) * (t1 - t0);
+                let m1 = Vec4::from(self.rotations[(k + 1) * 3]) * dt;
                 let result = m0 * (t3 - 2.0 * t2 + t)
                     + p0 * (2.0 * t3 - 3.0 * t2 + 1.0)
                     + p1 * (-2.0 * t3 + 3.0 * t2)
@@ -351,20 +357,18 @@ impl Animation {
 #[derive(Debug, Clone)]
 pub struct SceneDescriptor {
     meshes: Vec<MeshDescriptor>,
-    instances: Vec<Instance>,
-    skins: Vec<SkinDescriptor>,
+    nodes: Vec<NodeDescriptor>,
+    animations: Vec<AnimationDescriptor>,
 }
 
-// #[derive(Debug, Clone)]
-// pub struct MeshDescriptor {
-//     vertices: Vec<[f32; 4]>,
-//     sub_meshes: Vec<VertexMesh>,
-//     normals: Option<Vec<[f32; 3]>>,
-//     // tangents: Option<Vec<[f32; 3]>>,
-//     materials: Option<Vec<Material>>,
-// }
-
+use gltf::camera::Perspective;
 use rayon::prelude::*;
+
+#[derive(Debug, Clone)]
+pub struct SkeletonDescriptor {
+    pub joints: Vec<Vec<[u16; 4]>>,
+    pub weights: Vec<Vec<[f32; 4]>>,
+}
 
 #[derive(Debug, Clone)]
 pub struct MeshDescriptor {
@@ -373,8 +377,10 @@ pub struct MeshDescriptor {
     pub uvs: Vec<[f32; 2]>,
     pub tangents: Vec<[f32; 4]>,
     pub material_ids: Vec<i32>,
-    pub materials: MaterialList,
+    /// Mesh descriptors do not have a material list when they are part of a scene
+    pub materials: Option<MaterialList>,
     pub meshes: Vec<VertexMesh>,
+    pub skeleton: Option<SkeletonDescriptor>,
     pub bounds: AABB,
     pub name: String,
 }
@@ -385,7 +391,11 @@ impl Display for MeshDescriptor {
             f,
             "Mesh {{ vertices: {}, materials: {}, meshes: {}, bounds: {}, name: {} }}",
             self.vertices.len(),
-            self.materials.len(),
+            if let Some(m) = self.materials.as_ref() {
+                m.len()
+            } else {
+                0
+            },
             self.meshes.len(),
             self.bounds,
             self.name.as_str()
@@ -402,17 +412,35 @@ impl Default for MeshDescriptor {
 impl MeshDescriptor {
     pub fn new_indexed(
         indices: Vec<[u32; 3]>,
-        original_vertices: Vec<Vec3>,
-        original_normals: Vec<Vec3>,
-        original_uvs: Vec<Vec2>,
+        original_vertices: Vec<[f32; 4]>,
+        original_normals: Vec<[f32; 3]>,
+        original_uvs: Vec<[f32; 2]>,
+        skeleton: Option<SkeletonDescriptor>,
         material_ids: Vec<i32>,
-        materials: MaterialList,
+        materials: Option<MaterialList>,
         name: Option<String>,
     ) -> Self {
         let mut vertices: Vec<[f32; 4]> = Vec::with_capacity(indices.len() * 3);
         let mut normals: Vec<[f32; 3]> = Vec::with_capacity(indices.len() * 3);
         let mut uvs: Vec<[f32; 2]> = Vec::with_capacity(indices.len() * 3);
         let mut material_indices: Vec<i32> = Vec::with_capacity(indices.len() * 3);
+
+        let (mut joints, org_joints, mut weights, org_weights) = if let Some(skeleton) = skeleton {
+            let mut joints = Vec::with_capacity(skeleton.joints.len());
+            let mut weights = Vec::with_capacity(skeleton.weights.len());
+
+            for j in skeleton.joints.iter() {
+                joints.push(Vec::with_capacity(j.len()));
+            }
+            for w in skeleton.weights.iter() {
+                weights.push(Vec::with_capacity(w.len()));
+            }
+
+            (joints, skeleton.joints, weights, skeleton.weights)
+        } else {
+            (Vec::new(), Vec::new(), Vec::new(), Vec::new())
+        };
+
         indices.into_iter().enumerate().for_each(|(j, i)| {
             let i0 = i[0] as usize;
             let i1 = i[1] as usize;
@@ -457,25 +485,52 @@ impl MeshDescriptor {
             uvs.push([original_uvs[i1][0], original_uvs[i1][1]]);
             uvs.push([original_uvs[i2][0], original_uvs[i2][1]]);
 
+            joints.iter_mut().enumerate().for_each(|(i, v)| {
+                v.push(org_joints[i][i0]);
+                v.push(org_joints[i][i1]);
+                v.push(org_joints[i][i2]);
+            });
+
+            weights.iter_mut().enumerate().for_each(|(i, v)| {
+                v.push(org_weights[i][i0]);
+                v.push(org_weights[i][i1]);
+                v.push(org_weights[i][i2]);
+            });
+
             material_indices.push(material_ids[j]);
             material_indices.push(material_ids[j + 1]);
             material_indices.push(material_ids[j + 2]);
         });
 
+        let skeleton = if !joints.is_empty() && !weights.is_empty() {
+            Some(SkeletonDescriptor { joints, weights })
+        } else {
+            None
+        };
+
         debug_assert_eq!(vertices.len(), normals.len());
         debug_assert_eq!(vertices.len(), uvs.len());
-        debug_assert_eq!(uvs.len(), material_ids.len() * 3);
+        debug_assert_eq!(uvs.len(), material_ids.len());
         debug_assert_eq!(vertices.len() % 3, 0);
 
-        Self::new(vertices, normals, uvs, material_indices, materials, name)
+        Self::new(
+            vertices,
+            normals,
+            uvs,
+            skeleton,
+            material_indices,
+            materials,
+            name,
+        )
     }
 
     pub fn new(
         vertices: Vec<[f32; 4]>,
         normals: Vec<[f32; 3]>,
         uvs: Vec<[f32; 2]>,
+        skeleton: Option<SkeletonDescriptor>,
         material_ids: Vec<i32>,
-        materials: MaterialList,
+        materials: Option<MaterialList>,
         name: Option<String>,
     ) -> Self {
         debug_assert_eq!(vertices.len(), normals.len());
@@ -635,6 +690,7 @@ impl MeshDescriptor {
             material_ids: Vec::from(material_ids),
             materials,
             meshes,
+            skeleton,
             bounds,
             name: name.unwrap_or(String::new()),
         }
@@ -665,8 +721,9 @@ impl MeshDescriptor {
             uvs: Vec::new(),
             tangents: Vec::new(),
             material_ids: Vec::new(),
-            materials: MaterialList::new(),
+            materials: None,
             meshes: Vec::new(),
+            skeleton: None,
             bounds: AABB::new(),
             name: String::new(),
         }
@@ -693,5 +750,3 @@ impl Bounds for MeshDescriptor {
         self.bounds.clone()
     }
 }
-
-pub mod obj;
