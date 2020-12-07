@@ -4,6 +4,7 @@ mod mat;
 use std::{collections::HashMap, error::Error, fmt::Display, path::PathBuf, write};
 
 use load::{Loader, MeshDescriptor, SceneDescriptor};
+use crate::load::LoadOptions;
 
 #[derive(Debug, Clone)]
 pub enum LoadResult {
@@ -16,6 +17,8 @@ pub enum LoadResult {
 
 #[derive(Debug, Clone)]
 pub enum LoadError {
+    NoFileExtension,
+    UnsupportedExtension(String),
     FileDoesNotExist(PathBuf),
     InvalidFile(PathBuf),
     TextureDoesNotExist(PathBuf),
@@ -51,6 +54,7 @@ impl LoadInstance {
         }
     }
 
+    /// Loads default loaders included with this library
     pub fn with_default(mut self) -> Self {
         let obj_loader = load::obj::ObjLoader::default();
         for f in obj_loader.file_extensions() {
@@ -65,6 +69,7 @@ impl LoadInstance {
         self
     }
 
+    /// Adds a loader to this instance
     pub fn with_loader<T: Loader + Sized + Clone + 'static>(mut self, loader: T) -> Self {
         let file_names = loader.file_extensions();
         for f in file_names {
@@ -74,5 +79,20 @@ impl LoadInstance {
         }
 
         self
+    }
+
+    /// Loads file given in LoadOptions
+    pub fn load(&self, options: LoadOptions) -> LoadResult {
+        let ext = match load.path.extension() {
+            Some(e) => e,
+            None => return LoadResult::None(LoadError::NoFileExtension),
+        };
+
+        let ext = ext.to_str().unwrap().to_string();
+        if let Some(loader) = self.loaders.get(&ext) {
+            loader.load(options)
+        } else {
+            return LoadResult::None(LoadError::UnsupportedExtension(ext));
+        }
     }
 }
