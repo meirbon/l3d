@@ -1,8 +1,7 @@
-mod load;
-mod mat;
+pub mod load;
+pub mod mat;
 
 use std::{collections::HashMap, error::Error, fmt::Display, path::PathBuf, write};
-
 use load::{Loader, MeshDescriptor, SceneDescriptor};
 use crate::load::LoadOptions;
 
