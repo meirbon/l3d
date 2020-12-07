@@ -356,10 +356,10 @@ impl Animation {
 
 #[derive(Debug, Clone)]
 pub struct SceneDescriptor {
-    materials: MaterialList,
-    meshes: Vec<MeshDescriptor>,
-    nodes: Vec<NodeDescriptor>,
-    animations: Vec<AnimationDescriptor>,
+    pub materials: MaterialList,
+    pub meshes: Vec<MeshDescriptor>,
+    pub nodes: Vec<NodeDescriptor>,
+    pub animations: Vec<AnimationDescriptor>,
 }
 
 use rayon::prelude::*;
