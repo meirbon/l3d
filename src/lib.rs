@@ -57,6 +57,11 @@ impl LoadInstance {
             self.loaders
                 .insert(f, Box::new(load::obj::ObjLoader::default()));
         }
+
+        let gltf_loader = load::gltf::GltfLoader::default();
+        for f in gltf_loader.file_extensions() {
+            self.loaders.insert(f, Box::new(load::gltf::GltfLoader::default()));
+        }
         self
     }
 

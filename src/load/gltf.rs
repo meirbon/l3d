@@ -40,7 +40,7 @@ impl Loader for GltfLoader {
     }
 
     fn file_extensions(&self) -> Vec<String> {
-        vec![String::from("gltf")]
+        vec![String::from("gltf"), String::from("glb")]
     }
 
     fn load(&self, options: LoadOptions) -> LoadResult {
