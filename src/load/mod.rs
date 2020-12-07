@@ -308,15 +308,15 @@ impl Animation {
         update_mw: &mut Mw,
         update_matrix: &mut M,
     ) where
-        // (Node id, translation)
+    // (Node id, translation)
         T: FnMut(usize, [f32; 3]),
-        // (Node id, rotation)
+    // (Node id, rotation)
         R: FnMut(usize, [f32; 4]),
-        // (Node id, scale)
+    // (Node id, scale)
         S: FnMut(usize, [f32; 3]),
-        // (Node id, morph index, morph weight)
+    // (Node id, morph index, morph weight)
         Mw: FnMut(usize, usize, f32),
-        // (Node id), A function call signaling that the matrix of a node should be updated
+    // (Node id), A function call signaling that the matrix of a node should be updated
         M: FnMut(usize),
     {
         let channels = &mut self.channels;
@@ -361,7 +361,6 @@ pub struct SceneDescriptor {
     animations: Vec<AnimationDescriptor>,
 }
 
-use gltf::camera::Perspective;
 use rayon::prelude::*;
 
 #[derive(Debug, Clone)]

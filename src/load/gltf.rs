@@ -115,7 +115,7 @@ impl Loader for GltfLoader {
                         Some(tex) => load_texture(tex.texture().source().source()),
                         None => None,
                     },
-                    sheen_map: None
+                    sheen_map: None,
                 },
             );
 
@@ -536,7 +536,6 @@ fn load_node(gltf: &gltf::Gltf, gltf_buffers: &GltfBuffers, node: &gltf::Node) -
         }
     }
 
-    // TODO: Implement camera as well
     let camera = if let Some(camera) = node.camera() {
         let projection = match camera.projection() {
             gltf::camera::Projection::Orthographic(o) => Projection::Orthographic(Orthographic {
@@ -683,6 +682,7 @@ mod tests {
     use crate::load::LoadOptions;
     use core::panic;
     use std::path::PathBuf;
+    use rtbvh::AABB;
 
     #[test]
     fn load_gltf_works() {
@@ -692,42 +692,31 @@ mod tests {
             ..Default::default()
         });
 
-        let _ = match gltf {
+        let scene = match gltf {
             crate::LoadResult::Mesh(_) => panic!("glTF loader should only return scenes"),
             crate::LoadResult::Scene(s) => s,
             crate::LoadResult::None(_) => panic!("glTF loader should successfully load scenes"),
         };
 
-        // // Bounds should be correct
-        // let mut aabb = AABB::new();
-        // for v in m.vertices.iter() {
-        //     aabb.grow([v[0], v[1], v[2]]);
-        // }
-        // for i in 0..3 {
-        //     assert_eq!(aabb.min[i], m.bounds.min[i]);
-        //     assert_eq!(aabb.max[i], m.bounds.max[i]);
-        // }
-        //
-        // assert_eq!(960 * 3, m.vertices.len(), "The sphere object has 960 faces");
-        // assert_eq!(
-        //     m.vertices.len(),
-        //     m.normals.len(),
-        //     "Number of vertices and normals should be equal"
-        // );
-        // assert_eq!(
-        //     m.vertices.len(),
-        //     m.uvs.len(),
-        //     "Number of vertices and uvs should be equal"
-        // );
-        // assert_eq!(
-        //     m.vertices.len(),
-        //     m.tangents.len(),
-        //     "Number of vertices and tangents should be equal"
-        // );
-        // assert_eq!(
-        //     m.vertices.len(),
-        //     m.material_ids.len(),
-        //     "Number of vertices and material ids should be equal"
-        // );
+        assert_eq!(scene.meshes.len(), 1);
+        let m = &scene.meshes[0];
+        assert_eq!(m.vertices.len(), 14016);
+        assert_eq!(m.vertices.len(), m.normals.len());
+        assert_eq!(m.normals.len(), m.uvs.len());
+        assert_eq!(m.uvs.len(), m.tangents.len());
+        assert_eq!(m.tangents.len(), m.material_ids.len());
+
+        assert_eq!(m.meshes.len(), 1);
+        assert!(m.skeleton.is_some());
+
+        // Bounds should be correct
+        let mut aabb = AABB::new();
+        for v in m.vertices.iter() {
+            aabb.grow([v[0], v[1], v[2]]);
+        }
+        for i in 0..3 {
+            assert_eq!(aabb.min[i], m.bounds.min[i]);
+            assert_eq!(aabb.max[i], m.bounds.max[i]);
+        }
     }
 }

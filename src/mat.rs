@@ -107,6 +107,7 @@ impl Display for Material {
         )
     }
 }
+
 #[derive(Debug, Clone)]
 pub struct MaterialList {
     materials: Vec<Material>,
@@ -797,7 +798,7 @@ impl Texture {
                         (width * height) as usize,
                     )
                 }
-                .to_vec(),
+                    .to_vec(),
                 width,
                 height,
                 mip_levels: 1,
@@ -875,8 +876,8 @@ impl Texture {
     }
 
     pub fn transformed<C>(mut self, cb: C) -> Texture
-    where
-        C: Fn(Pixel) -> Pixel,
+        where
+            C: Fn(Pixel) -> Pixel,
     {
         for pixel in self.data.iter_mut() {
             let cb = &cb;
