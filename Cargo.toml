@@ -9,7 +9,7 @@ edition = "2018"
 [dependencies]
 tobj = "1.0"
 gltf = { version = "0.15", features = ["extras", "names", "utils"] }
-rtbvh = { git = "https://github.com/MeirBon/rtbvh.git" }
+rtbvh = "0.1.1"
 glam = "0.11"
 rayon = "1.5"
 image = "0.23"
