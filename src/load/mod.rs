@@ -308,31 +308,20 @@ impl Default for Animation {
     }
 }
 
+pub trait AnimationNode {
+    fn set_translation(&mut self, translation: [f32; 3]);
+    fn set_rotation(&mut self, rotation: [f32; 4]);
+    fn set_scale(&mut self, scale: [f32; 3]);
+    fn set_weights(&mut self, weights: &[f32]);
+    fn update_matrix(&mut self);
+}
+
 impl Animation {
     pub fn new() -> Self {
         Self::default()
     }
 
-    pub fn set_time<T, R, S, Mw, M>(
-        &mut self,
-        time: f32,
-        update_t: &mut T,
-        update_r: &mut R,
-        update_s: &mut S,
-        update_mw: &mut Mw,
-        update_matrix: &mut M,
-    ) where
-        // (Node id, translation)
-        T: FnMut(usize, [f32; 3]),
-        // (Node id, rotation)
-        R: FnMut(usize, [f32; 4]),
-        // (Node id, scale)
-        S: FnMut(usize, [f32; 3]),
-        // (Node id, morph index, morph weight)
-        Mw: FnMut(usize, usize, f32),
-        // (Node id), A function call signaling that the matrix of a node should be updated
-        M: FnMut(usize),
-    {
+    pub fn set_time<T: AnimationNode>(&mut self, time: f32, nodes: &mut [T]) {
         let channels = &mut self.channels;
 
         channels.iter_mut().for_each(|(node_id, c)| {
@@ -344,26 +333,33 @@ impl Animation {
                     key += 1;
                 }
 
-                match t {
-                    Target::Translation => {
-                        update_t(node_id, c.sample_translation(current_time, key));
-                    }
-                    Target::Rotation => {
-                        update_r(node_id, c.sample_rotation(current_time, key));
-                    }
-                    Target::Scale => {
-                        update_s(node_id, c.sample_scale(current_time, key));
-                    }
-                    Target::MorphWeights => {
-                        let weights = c.weights.len();
-                        for i in 0..weights {
-                            update_mw(node_id, i, c.sample_weight(current_time, key, i, weights));
+                if let Some(node) = nodes.get_mut(node_id) {
+                    match t {
+                        Target::Translation => {
+                            node.set_translation(c.sample_translation(current_time, key));
+                        }
+                        Target::Rotation => {
+                            node.set_rotation(c.sample_rotation(current_time, key));
+                        }
+                        Target::Scale => {
+                            node.set_scale(c.sample_scale(current_time, key));
+                        }
+                        Target::MorphWeights => {
+                            let num_weights = c.weights.len();
+                            let mw = (0..num_weights)
+                                .into_iter()
+                                .map(|i| c.sample_weight(current_time, key, i, num_weights))
+                                .collect::<Vec<f32>>();
+
+                            node.set_weights(mw.as_slice());
                         }
                     }
                 }
             });
 
-            update_matrix(node_id);
+            if let Some(node) = nodes.get_mut(node_id) {
+                node.update_matrix();
+            }
         });
     }
 }
