@@ -1,9 +1,14 @@
 pub mod load;
 pub mod mat;
+pub mod prelude {
+    pub use crate::load::*;
+    pub use crate::mat::*;
+    pub use crate::*;
+}
 
-use std::{collections::HashMap, error::Error, fmt::Display, path::PathBuf, write};
-use load::{Loader, MeshDescriptor, SceneDescriptor};
 use crate::load::LoadOptions;
+use load::{Loader, MeshDescriptor, SceneDescriptor};
+use std::{collections::HashMap, error::Error, fmt::Display, path::PathBuf, write};
 
 #[derive(Debug, Clone)]
 pub enum LoadResult {
@@ -36,7 +41,8 @@ impl Display for LoadError {
                 LoadError::InvalidFile(file) =>
                     format!("File might be corrupted: {}", file.display()),
                 LoadError::NoFileExtension => String::from("No file extension"),
-                LoadError::UnsupportedExtension(ext) => format!("Unsupported file extension: {}", ext)
+                LoadError::UnsupportedExtension(ext) =>
+                    format!("Unsupported file extension: {}", ext),
             }
         )
     }
@@ -65,7 +71,8 @@ impl LoadInstance {
 
         let gltf_loader = load::gltf::GltfLoader::default();
         for f in gltf_loader.file_extensions() {
-            self.loaders.insert(f, Box::new(load::gltf::GltfLoader::default()));
+            self.loaders
+                .insert(f, Box::new(load::gltf::GltfLoader::default()));
         }
         self
     }

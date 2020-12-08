@@ -13,3 +13,8 @@ rtbvh = { git = "https://github.com/MeirBon/rtbvh.git" }
 glam = "0.11"
 rayon = "1.5"
 image = "0.23"
+serde = { version = "1.0", features = ["derive"], optional = true }
+
+
+[features]
+default = []

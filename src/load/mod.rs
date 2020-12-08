@@ -1,10 +1,14 @@
 use crate::{mat::MaterialList, LoadResult};
 use glam::*;
+use rayon::prelude::*;
 use rtbvh::{Bounds, AABB};
 use std::{
     fmt::{Debug, Display},
     path::PathBuf,
 };
+
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
 
 pub mod gltf;
 pub mod obj;
@@ -15,6 +19,7 @@ pub trait Loader: Debug {
     fn load(&self, options: LoadOptions) -> LoadResult;
 }
 
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct LoadOptions {
     pub path: PathBuf,
     /// Whether to load/generate normals if they are not part of the 3D file
@@ -36,6 +41,7 @@ impl Default for LoadOptions {
     }
 }
 
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Copy, Clone)]
 pub struct VertexMesh {
     pub first: u32,
@@ -54,6 +60,7 @@ impl Display for VertexMesh {
     }
 }
 
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct SkinDescriptor {
     pub name: String,
@@ -62,6 +69,7 @@ pub struct SkinDescriptor {
     pub joint_nodes: Vec<u32>,
 }
 
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct AnimationDescriptor {
     pub name: String,
@@ -69,6 +77,7 @@ pub struct AnimationDescriptor {
     pub channels: Vec<(u32, Channel)>,
 }
 
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum Method {
     Linear,
@@ -76,6 +85,7 @@ pub enum Method {
     Step,
 }
 
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum Target {
     Translation,
@@ -84,6 +94,7 @@ pub enum Target {
     MorphWeights,
 }
 
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Copy, Clone)]
 pub struct Orthographic {
     pub x_mag: f32,
@@ -92,6 +103,7 @@ pub struct Orthographic {
     pub z_far: f32,
 }
 
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Copy, Clone)]
 pub struct Perspective {
     pub aspect_ratio: Option<f32>,
@@ -100,17 +112,20 @@ pub struct Perspective {
     pub z_far: Option<f32>,
 }
 
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub enum Projection {
     Orthographic(Orthographic),
     Perspective(Perspective),
 }
 
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct CameraDescriptor {
     projection: Projection,
 }
 
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct NodeDescriptor {
     pub name: String,
@@ -130,6 +145,7 @@ pub struct NodeDescriptor {
     pub id: u32,
 }
 
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct Channel {
     pub targets: Vec<Target>,
@@ -274,8 +290,7 @@ impl Channel {
     }
 }
 
-#[allow(dead_code)]
-#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct Animation {
     pub name: String,
@@ -293,7 +308,6 @@ impl Default for Animation {
     }
 }
 
-#[allow(dead_code)]
 impl Animation {
     pub fn new() -> Self {
         Self::default()
@@ -308,15 +322,15 @@ impl Animation {
         update_mw: &mut Mw,
         update_matrix: &mut M,
     ) where
-    // (Node id, translation)
+        // (Node id, translation)
         T: FnMut(usize, [f32; 3]),
-    // (Node id, rotation)
+        // (Node id, rotation)
         R: FnMut(usize, [f32; 4]),
-    // (Node id, scale)
+        // (Node id, scale)
         S: FnMut(usize, [f32; 3]),
-    // (Node id, morph index, morph weight)
+        // (Node id, morph index, morph weight)
         Mw: FnMut(usize, usize, f32),
-    // (Node id), A function call signaling that the matrix of a node should be updated
+        // (Node id), A function call signaling that the matrix of a node should be updated
         M: FnMut(usize),
     {
         let channels = &mut self.channels;
@@ -354,6 +368,7 @@ impl Animation {
     }
 }
 
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct SceneDescriptor {
     pub materials: MaterialList,
@@ -362,14 +377,14 @@ pub struct SceneDescriptor {
     pub animations: Vec<AnimationDescriptor>,
 }
 
-use rayon::prelude::*;
-
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct SkeletonDescriptor {
     pub joints: Vec<Vec<[u16; 4]>>,
     pub weights: Vec<Vec<[f32; 4]>>,
 }
 
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct MeshDescriptor {
     pub vertices: Vec<[f32; 4]>,

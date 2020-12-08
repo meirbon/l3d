@@ -19,6 +19,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
+
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Copy, Clone)]
 pub struct GltfLoader {}
 

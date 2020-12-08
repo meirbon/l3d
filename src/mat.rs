@@ -9,6 +9,10 @@ use std::{
     path::PathBuf,
 };
 
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
+
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct Material {
     pub name: String,
@@ -108,6 +112,7 @@ impl Display for Material {
     }
 }
 
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct MaterialList {
     materials: Vec<Material>,
@@ -115,6 +120,7 @@ pub struct MaterialList {
     textures: Vec<Texture>,
 }
 
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum Flip {
     None,
@@ -129,6 +135,7 @@ impl Default for Flip {
     }
 }
 
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub enum TextureSource {
     Loaded(Texture),
@@ -146,6 +153,7 @@ impl Display for MaterialList {
     }
 }
 
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum TextureFormat {
     R,
@@ -160,6 +168,7 @@ pub enum TextureFormat {
     RGBA16,
 }
 
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Copy, Clone)]
 #[repr(C, align(16))]
 pub struct Pixel {
@@ -381,7 +390,7 @@ impl IndexMut<usize> for Pixel {
 }
 
 // TODO: Support other formats than BGRA8
-#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct Texture {
     pub data: Vec<u32>,
@@ -798,7 +807,7 @@ impl Texture {
                         (width * height) as usize,
                     )
                 }
-                    .to_vec(),
+                .to_vec(),
                 width,
                 height,
                 mip_levels: 1,
@@ -876,8 +885,8 @@ impl Texture {
     }
 
     pub fn transformed<C>(mut self, cb: C) -> Texture
-        where
-            C: Fn(Pixel) -> Pixel,
+    where
+        C: Fn(Pixel) -> Pixel,
     {
         for pixel in self.data.iter_mut() {
             let cb = &cb;
@@ -918,6 +927,7 @@ impl Default for MaterialList {
     }
 }
 
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct TextureDescriptor {
     pub albedo: Option<TextureSource>,
