@@ -1,17 +1,20 @@
 [package]
 name = "l3d"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Mèir Noordermeer <meirnoordermeer@me.com>"]
 edition = "2018"
 description = "Library for loading 3D objects."
+repository = "https://github.com/meirbon/l3d"
 license = "MIT"
+readme = "./README.md"
+keywords = ["3d", "object", "gltf", "tinyobj", "obj"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 tobj = "1.0"
 gltf = { version = "0.15", features = ["extras", "names", "utils"] }
-rtbvh = "0.1.1"
+rtbvh = "0.1.2"
 glam = "0.11"
 rayon = "1.5"
 image = "0.23"
