@@ -3,9 +3,7 @@ use crate::load::{
     Orthographic, Perspective, SceneDescriptor, SkeletonDescriptor, SkinDescriptor, Target,
 };
 use crate::load::{CameraDescriptor, Projection};
-use crate::mat::{
-    Flip, Material, MaterialList, Texture, TextureDescriptor, TextureFormat, TextureSource,
-};
+use crate::mat::{Flip, MaterialList, Texture, TextureDescriptor, TextureFormat, TextureSource};
 use crate::{LoadError, LoadResult};
 use glam::*;
 use gltf::{
@@ -88,16 +86,12 @@ impl Loader for GltfLoader {
         };
 
         document.materials().enumerate().for_each(|(i, m)| {
-            let mut material = Material::default();
-            material.name = m.name().unwrap_or("").to_string();
             let pbr = m.pbr_metallic_roughness();
-            material.roughness = pbr.roughness_factor();
-            material.color = pbr.base_color_factor();
-            material.metallic = pbr.metallic_factor();
+
             let index = mat_list.add_with_maps(
-                Vec4::from(pbr.base_color_factor()).truncate().into(),
+                Vec4::from(pbr.base_color_factor()).truncate(),
                 pbr.roughness_factor(),
-                Vec4::from(pbr.base_color_factor()).truncate().into(),
+                Vec4::from(pbr.base_color_factor()).truncate(),
                 0.0,
                 TextureDescriptor {
                     albedo: match pbr.base_color_texture() {
@@ -511,7 +505,7 @@ fn load_node(gltf: &gltf::Gltf, gltf_buffers: &GltfBuffers, node: &gltf::Node) -
     }
 
     let maybe_skin = node.skin().map(|s| {
-        let name = s.name().map(|n| n.into()).unwrap_or(String::new());
+        let name = s.name().map(|n| n.into()).unwrap_or_default();
         let joint_nodes = s
             .joints()
             .map(|joint_node| joint_node.index() as u32)
@@ -563,7 +557,7 @@ fn load_node(gltf: &gltf::Gltf, gltf_buffers: &GltfBuffers, node: &gltf::Node) -
     };
 
     NodeDescriptor {
-        name: node.name().map(|n| n.into()).unwrap_or("".into()),
+        name: node.name().map(|n| n.into()).unwrap_or_default(),
         child_nodes,
         camera,
 
@@ -573,7 +567,7 @@ fn load_node(gltf: &gltf::Gltf, gltf_buffers: &GltfBuffers, node: &gltf::Node) -
 
         meshes: node_meshes,
         skin: maybe_skin,
-        weights: node.weights().map(|w| w.to_vec()).unwrap_or(vec![]),
+        weights: node.weights().map(|w| w.to_vec()).unwrap_or_default(),
 
         id: node.index() as u32,
     }
@@ -661,7 +655,7 @@ impl GltfBuffers {
                 .map(Option::as_ref)
                 .flatten()
                 .map(Vec::as_slice),
-            Source::Bin => gltf.blob.as_ref().map(Vec::as_slice),
+            Source::Bin => gltf.blob.as_deref(),
         }
     }
 
@@ -686,8 +680,8 @@ mod tests {
     use crate::load::gltf::GltfLoader;
     use crate::load::LoadOptions;
     use core::panic;
-    use std::path::PathBuf;
     use rtbvh::AABB;
+    use std::path::PathBuf;
 
     #[test]
     fn load_gltf_works() {
@@ -720,8 +714,8 @@ mod tests {
             aabb.grow([v[0], v[1], v[2]]);
         }
         for i in 0..3 {
-            assert_eq!(aabb.min[i], m.bounds.min[i]);
-            assert_eq!(aabb.max[i], m.bounds.max[i]);
+            assert!((aabb.min[i] - m.bounds.min[i]).abs() < f32::EPSILON);
+            assert!((aabb.max[i] - m.bounds.max[i]).abs() < f32::EPSILON);
         }
     }
 }

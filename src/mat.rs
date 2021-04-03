@@ -1,3 +1,4 @@
+#![allow(clippy::upper_case_acronyms)]
 use glam::*;
 use image::GenericImageView;
 use std::{
@@ -11,6 +12,8 @@ use std::{
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
+
+use crate::LoadError;
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
@@ -200,23 +203,29 @@ impl From<[f32; 4]> for Pixel {
     }
 }
 
-impl Into<[f32; 4]> for Pixel {
-    fn into(self) -> [f32; 4] {
-        [self.r, self.g, self.b, self.a]
+impl From<Pixel> for [f32; 4] {
+    fn from(p: Pixel) -> Self {
+        [p.r, p.g, p.b, p.a]
     }
 }
 
 impl Pixel {
+    pub const ZERO: Self = Pixel {
+        r: 0.0,
+        g: 0.0,
+        b: 0.0,
+        a: 0.0,
+    };
+
+    pub const ONE: Self = Pixel {
+        r: 1.0,
+        g: 1.0,
+        b: 1.0,
+        a: 1.0,
+    };
+
     pub fn new() -> Self {
         Self::default()
-    }
-
-    pub fn zero() -> Self {
-        Self::from([0.0; 4])
-    }
-
-    pub fn one() -> Self {
-        Self::from([1.0; 4])
     }
 
     pub fn from_bgra(pixel: u32) -> Self {
@@ -456,15 +465,15 @@ impl Texture {
         let mut dst_offset = src_offset + self.width as usize * self.height as usize;
 
         let mut pw: usize = self.width as usize;
-        let mut w: usize = self.width as usize >> 1;
-        let mut h: usize = self.height as usize >> 1;
+        let mut wi: usize = self.width as usize >> 1;
+        let mut he: usize = self.height as usize >> 1;
 
         for _ in 1..levels {
-            let max_dst_offset = dst_offset + (w * h);
+            let max_dst_offset = dst_offset + (wi * he);
             debug_assert!(max_dst_offset <= self.data.len());
 
-            for y in 0..h {
-                for x in 0..w {
+            for y in 0..he {
+                for x in 0..wi {
                     let src0 = self.data[x * 2 + (y * 2) * pw + src_offset];
                     let src1 = self.data[x * 2 + 1 + (y * 2) * pw + src_offset];
                     let src2 = self.data[x * 2 + (y * 2 + 1) * pw + src_offset];
@@ -481,16 +490,16 @@ impl Texture {
                         + ((src2 >> 8) & 255)
                         + ((src3 >> 8) & 255);
                     let b = (src0 & 255) + (src1 & 255) + (src2 & 255) + (src3 & 255);
-                    self.data[dst_offset + x + y * w] =
+                    self.data[dst_offset + x + y * wi] =
                         (a << 24) + ((r >> 2) << 16) + ((g >> 2) << 8) + (b >> 2);
                 }
             }
 
             src_offset = dst_offset;
-            dst_offset += w * h;
-            pw = w;
-            w >>= 1;
-            h >>= 1;
+            dst_offset += wi * he;
+            pw = wi;
+            wi >>= 1;
+            he >>= 1;
         }
     }
 
@@ -671,16 +680,16 @@ impl Texture {
         }
     }
 
-    pub fn load<T: AsRef<Path>>(path: T, flip: Flip) -> Result<Self, ()> {
+    pub fn load<T: AsRef<Path>>(path: T, flip: Flip) -> Result<Self, LoadError> {
         // See if file exists
         if !path.as_ref().exists() {
-            return Err(());
+            return Err(LoadError::FileDoesNotExist(path.as_ref().to_path_buf()));
         }
 
         // Attempt to load image
-        let img = match image::open(path) {
+        let img = match image::open(path.as_ref()) {
             Ok(img) => img,
-            Err(_) => return Err(()),
+            Err(_) => return Err(LoadError::FileDoesNotExist(path.as_ref().to_path_buf())),
         };
 
         // Loading was successful
@@ -692,7 +701,7 @@ impl Texture {
         };
 
         let (width, height) = (img.width(), img.height());
-        let mut data = vec![0 as u32; (width * height) as usize];
+        let mut data = vec![0_u32; (width * height) as usize];
 
         let bgra_image = img.to_bgra8();
         data.copy_from_slice(unsafe {
@@ -814,7 +823,7 @@ impl Texture {
             };
         }
 
-        let mut data = vec![0 as u32; (width * height) as usize];
+        let mut data = vec![0_u32; (width * height) as usize];
         for y in 0..height {
             for x in 0..width {
                 let index = (x + y * width) as usize;
@@ -892,23 +901,23 @@ impl Texture {
             let cb = &cb;
             let p: u32 = *pixel;
 
-            let r: u32 = p.overflowing_shr(16).0 & 255;
-            let g: u32 = p.overflowing_shr(8).0 & 255;
-            let b: u32 = p & 255;
-            let a: u32 = p.overflowing_shr(24).0 & 255;
+            let red: u32 = p.overflowing_shr(16).0 & 255;
+            let green: u32 = p.overflowing_shr(8).0 & 255;
+            let blue: u32 = p & 255;
+            let alpha: u32 = p.overflowing_shr(24).0 & 255;
 
-            let r: f32 = r as f32 / 255.0;
-            let g: f32 = g as f32 / 255.0;
-            let b: f32 = b as f32 / 255.0;
-            let a: f32 = a as f32 / 255.0;
+            let red: f32 = red as f32 * (1.0 / 255.0);
+            let green: f32 = green as f32 * (1.0 / 255.0);
+            let blue: f32 = blue as f32 * (1.0 / 255.0);
+            let alpha: f32 = alpha as f32 * (1.0 / 255.0);
 
-            let colors: Pixel = cb(Pixel::from([r, g, b, a]));
-            let r: u32 = (colors.r.min(1.0).max(0.0) * 255.0) as u32;
-            let g: u32 = (colors.g.min(1.0).max(0.0) * 255.0) as u32;
-            let b: u32 = (colors.b.min(1.0).max(0.0) * 255.0) as u32;
-            let a: u32 = (colors.a.min(1.0).max(0.0) * 255.0) as u32;
+            let colors: Pixel = cb(Pixel::from([red, green, blue, alpha]));
+            let red: u32 = (colors.r.min(1.0).max(0.0) * 255.0) as u32;
+            let green: u32 = (colors.g.min(1.0).max(0.0) * 255.0) as u32;
+            let blue: u32 = (colors.b.min(1.0).max(0.0) * 255.0) as u32;
+            let alpha: u32 = (colors.a.min(1.0).max(0.0) * 255.0) as u32;
 
-            *pixel = (a << 24) + (r << 16) + (g << 8) + b;
+            *pixel = (alpha << 24) + (red << 16) + (green << 8) + blue;
         }
 
         self
@@ -1047,11 +1056,13 @@ impl MaterialList {
         let emissive_map = textures.emissive_map;
         let sheen_map = textures.sheen_map;
 
-        let mut material = Material::default();
-        material.color = color.extend(1.0).into();
-        material.specular = specular.extend(1.0).into();
-        material.roughness = roughness;
-        material.transmission = transmission;
+        let mut material = Material {
+            color: color.extend(1.0).into(),
+            specular: specular.extend(1.0).into(),
+            roughness,
+            transmission,
+            ..Default::default()
+        };
 
         let diffuse_tex = if let Some(albedo) = albedo {
             match albedo {

@@ -421,6 +421,7 @@ impl Default for MeshDescriptor {
 }
 
 impl MeshDescriptor {
+    #[allow(clippy::too_many_arguments)]
     pub fn new_indexed(
         indices: Vec<[u32; 3]>,
         original_vertices: Vec<[f32; 4]>,
@@ -555,26 +556,26 @@ impl MeshDescriptor {
         let normals: Vec<[f32; 3]> = if Vec3::from(normals[0]).cmpeq(Vec3::zero()).all() {
             let mut normals = vec![[0.0_f32; 3]; vertices.len()];
             for i in (0..vertices.len()).step_by(3) {
-                let v0 = Vec3::new(vertices[i + 0][0], vertices[i + 0][1], vertices[i + 0][2]);
+                let v0 = Vec3::new(vertices[i][0], vertices[i][1], vertices[i][2]);
                 let v1 = Vec3::new(vertices[i + 1][0], vertices[i + 1][1], vertices[i + 1][2]);
                 let v2 = Vec3::new(vertices[i + 2][0], vertices[i + 2][1], vertices[i + 2][2]);
 
                 let e1: Vec3 = v1 - v0;
                 let e2: Vec3 = v2 - v0;
 
-                let n = e1.cross(e2).normalize();
+                let normal = e1.cross(e2).normalize();
 
                 let a = (v1 - v0).length();
                 let b = (v2 - v1).length();
                 let c = (v0 - v2).length();
                 let s = (a + b + c) * 0.5;
                 let area = (s * (s - a) * (s - b) * (s - c)).sqrt();
-                let n: Vec3 = n * area;
+                let normal: Vec3 = normal * area;
 
                 for j in 0..3 {
-                    normals[i + 0][j] += n[j];
-                    normals[i + 1][j] += n[j];
-                    normals[i + 2][j] += n[j];
+                    normals[i][j] += normal[j];
+                    normals[i + 1][j] += normal[j];
+                    normals[i + 2][j] += normal[j];
                 }
             }
 
@@ -623,11 +624,11 @@ impl MeshDescriptor {
             };
 
             for i in 0..3 {
-                tangents[i + 0][i] += t[i];
+                tangents[i][i] += t[i];
                 tangents[i + 1][i] += t[i];
                 tangents[i + 2][i] += t[i];
 
-                bitangents[i + 0][i] += b[i];
+                bitangents[i][i] += b[i];
                 bitangents[i + 1][i] += b[i];
                 bitangents[i + 2][i] += b[i];
             }
@@ -665,7 +666,7 @@ impl MeshDescriptor {
                     first: start,
                     last: (start + range),
                     mat_id: last_id as i32,
-                    bounds: v_bounds.clone(),
+                    bounds: v_bounds,
                 });
 
                 v_bounds = AABB::new();
@@ -681,7 +682,7 @@ impl MeshDescriptor {
                 first: 0,
                 last: vertices.len() as u32,
                 mat_id: material_ids[0] as i32,
-                bounds: bounds.clone(),
+                bounds,
             });
         } else if (start + range) != (material_ids.len() as u32 - 1) {
             // Add last mesh to list
@@ -698,12 +699,12 @@ impl MeshDescriptor {
             normals,
             uvs,
             tangents,
-            material_ids: Vec::from(material_ids),
+            material_ids,
             materials,
             meshes,
             skeleton,
             bounds,
-            name: name.unwrap_or(String::new()),
+            name: name.unwrap_or_default(),
         }
     }
 
@@ -723,6 +724,10 @@ impl MeshDescriptor {
 
     pub fn len(&self) -> usize {
         self.vertices.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.vertices.is_empty()
     }
 
     pub fn empty() -> Self {
@@ -758,6 +763,6 @@ impl MeshDescriptor {
 
 impl Bounds for MeshDescriptor {
     fn bounds(&self) -> AABB {
-        self.bounds.clone()
+        self.bounds
     }
 }

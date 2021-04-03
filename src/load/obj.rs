@@ -38,8 +38,8 @@ impl Loader for ObjLoader {
 
     fn load(&self, options: LoadOptions) -> LoadResult {
         let object = tobj::load_obj(&options.path);
-        if let Err(_) = object {
-            return LoadResult::None(LoadError::FileDoesNotExist(options.path.clone()));
+        if object.is_err() {
+            return LoadResult::None(LoadError::FileDoesNotExist(options.path));
         }
 
         let (models, materials) = object.unwrap();
@@ -62,12 +62,12 @@ impl Loader for ObjLoader {
                 PathBuf::new()
             };
 
-            let d_path = if material.diffuse_texture == "" {
+            let d_path = if material.diffuse_texture.is_empty() {
                 None
             } else {
                 Some(parent.join(material.diffuse_texture.as_str()).to_path_buf())
             };
-            let mut n_path = if material.normal_texture == "" {
+            let mut n_path = if material.normal_texture.is_empty() {
                 None
             } else {
                 Some(parent.join(material.normal_texture.as_str()).to_path_buf())
@@ -85,37 +85,34 @@ impl Loader for ObjLoader {
                     "ke" => {
                         // Emissive
                         let values = value.split_ascii_whitespace();
-                        let mut f_values = [0.0 as f32; 3];
-                        let mut i = 0;
+                        let mut f_values = [0.0_f32; 3];
 
-                        for value in values {
-                            assert!(i <= 2);
+                        for (i, value) in values.take(3).enumerate() {
                             let value: f32 = value.parse().unwrap_or(0.0);
                             f_values[i] = value;
-                            i += 1;
                         }
 
                         let mut value: Vec3A = Vec3A::from(f_values);
                         if !value.cmpeq(Vec3A::zero()).all() && value.cmple(Vec3A::one()).all() {
-                            value = value * Vec3A::splat(10.0);
+                            value *= Vec3A::splat(10.0);
                         }
 
                         color = value.max(color.into()).into();
                     }
                     "map_pr" => {
-                        roughness_map = Some(parent.join(value.as_str()).to_path_buf());
+                        roughness_map = Some(parent.join(value.as_str()));
                     }
                     "map_ke" => {
-                        emissive_map = Some(parent.join(value.as_str()).to_path_buf());
+                        emissive_map = Some(parent.join(value.as_str()));
                     }
                     "ps" | "map_ps" => {
-                        sheen_map = Some(parent.join(value.as_str()).to_path_buf());
+                        sheen_map = Some(parent.join(value.as_str()));
                     }
                     "pm" | "map_pm" => {
-                        metallic_map = Some(parent.join(value.as_str()).to_path_buf());
+                        metallic_map = Some(parent.join(value.as_str()));
                     }
                     "norm" | "map_ns" | "map_bump" => {
-                        n_path = Some(parent.join(value.as_str()).to_path_buf());
+                        n_path = Some(parent.join(value.as_str()));
                     }
                     _ => {}
                 }
@@ -169,27 +166,12 @@ impl Loader for ObjLoader {
                 specular,
                 opacity,
                 TextureDescriptor {
-                    albedo: if let Some(path) = d_path {
-                        Some(TextureSource::Filesystem(path, Flip::FlipV))
-                    } else {
-                        None
-                    },
-                    normal: if let Some(path) = n_path {
-                        Some(TextureSource::Filesystem(path, Flip::FlipV))
-                    } else {
-                        None
-                    },
+                    albedo: d_path.map(|path| TextureSource::Filesystem(path, Flip::FlipV)),
+                    normal: n_path.map(|path| TextureSource::Filesystem(path, Flip::FlipV)),
                     metallic_roughness_map: metallic_roughness,
-                    emissive_map: if let Some(path) = emissive_map {
-                        Some(TextureSource::Filesystem(path, Flip::FlipV))
-                    } else {
-                        None
-                    },
-                    sheen_map: if let Some(path) = sheen_map {
-                        Some(TextureSource::Filesystem(path, Flip::FlipV))
-                    } else {
-                        None
-                    },
+                    emissive_map: emissive_map
+                        .map(|path| TextureSource::Filesystem(path, Flip::FlipV)),
+                    sheen_map: sheen_map.map(|path| TextureSource::Filesystem(path, Flip::FlipV)),
                 },
             );
 
@@ -211,7 +193,6 @@ impl Loader for ObjLoader {
         for m in models.iter() {
             let mesh = &m.mesh;
 
-            let mut i = 0;
             for idx in &mesh.indices {
                 let idx = *idx as usize;
                 let i0 = 3 * idx;
@@ -250,7 +231,6 @@ impl Loader for ObjLoader {
                 };
 
                 material_ids.push(material_id);
-                i = i + 1;
             }
         }
 
@@ -298,8 +278,8 @@ mod tests {
             aabb.grow([v[0], v[1], v[2]]);
         }
         for i in 0..3 {
-            assert_eq!(aabb.min[i], m.bounds.min[i]);
-            assert_eq!(aabb.max[i], m.bounds.max[i]);
+            assert!((aabb.min[i] - m.bounds.min[i]).abs() < f32::EPSILON);
+            assert!((aabb.max[i] - m.bounds.max[i]).abs() < f32::EPSILON);
         }
 
         assert_eq!(960 * 3, m.vertices.len(), "The sphere object has 960 faces");
@@ -348,8 +328,8 @@ mod tests {
             aabb.grow([v[0], v[1], v[2]]);
         }
         for i in 0..3 {
-            assert_eq!(aabb.min[i], m.bounds.min[i]);
-            assert_eq!(aabb.max[i], m.bounds.max[i]);
+            assert!((aabb.min[i] - m.bounds.min[i]).abs() < f32::EPSILON);
+            assert!((aabb.max[i] - m.bounds.max[i]).abs() < f32::EPSILON);
         }
 
         assert_eq!(960 * 3, m.vertices.len(), "The sphere object has 960 faces");

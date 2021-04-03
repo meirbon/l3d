@@ -81,7 +81,6 @@ impl LoadInstance {
     pub fn with_loader<T: Loader + Sized + Clone + 'static>(mut self, loader: T) -> Self {
         let file_names = loader.file_extensions();
         for f in file_names {
-            let f = String::from(f);
             let loader: Box<dyn Loader> = Box::new(loader.clone());
             self.loaders.insert(f, loader);
         }
@@ -100,7 +99,13 @@ impl LoadInstance {
         if let Some(loader) = self.loaders.get(&ext) {
             loader.load(options)
         } else {
-            return LoadResult::None(LoadError::UnsupportedExtension(ext));
+            LoadResult::None(LoadError::UnsupportedExtension(ext))
         }
+    }
+}
+
+impl Default for LoadInstance {
+    fn default() -> Self {
+        Self::new().with_default()
     }
 }
