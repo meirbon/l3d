@@ -10,7 +10,7 @@ use crate::load::LoadOptions;
 use load::{Loader, MeshDescriptor, SceneDescriptor};
 use std::{collections::HashMap, error::Error, fmt::Display, path::PathBuf, write};
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum LoadResult {
     /// Reference to single mesh
     Mesh(MeshDescriptor),
@@ -19,7 +19,23 @@ pub enum LoadResult {
     None(LoadError),
 }
 
-#[derive(Debug, Clone)]
+impl LoadResult {
+    pub fn mesh(&self) -> Option<&MeshDescriptor> {
+        match self {
+            Self::Mesh(m) => Some(m),
+            _ => None,
+        }
+    }
+
+    pub fn scene(&self) -> Option<&SceneDescriptor> {
+        match self {
+            Self::Scene(s) => Some(s),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug)]
 pub enum LoadError {
     NoFileExtension,
     CouldNotParseSource,
@@ -28,6 +44,7 @@ pub enum LoadError {
     FileDoesNotExist(PathBuf),
     InvalidFile(PathBuf),
     TextureDoesNotExist(PathBuf),
+    Error(Box<dyn Error>),
 }
 
 impl Display for LoadError {
@@ -47,6 +64,7 @@ impl Display for LoadError {
                 LoadError::CouldNotParseExtension => String::from("Could not parse file extension"),
                 LoadError::UnsupportedExtension(ext) =>
                     format!("Unsupported file extension: {}", ext),
+                LoadError::Error(e) => format!("{}", e),
             }
         )
     }
@@ -95,19 +113,16 @@ impl LoadInstance {
     /// Loads file given in LoadOptions
     pub fn load(&self, options: LoadOptions) -> LoadResult {
         let extension = match &options.source {
-            load::LoadSource::Path(path) => {
-                match path.extension() {
-                    Some(e) => match e.to_str() {
-                        Some(e) => e,
-                        None => return LoadResult::None(LoadError::NoFileExtension),
-                    },
+            load::LoadSource::Path(path) => match path.extension() {
+                Some(e) => match e.to_str() {
+                    Some(e) => e,
                     None => return LoadResult::None(LoadError::NoFileExtension),
-                }
+                },
+                None => return LoadResult::None(LoadError::NoFileExtension),
             },
-            load::LoadSource::String {  extension, .. } => {
-                extension
-            },
-        }.to_string();
+            load::LoadSource::String { extension, .. } => extension,
+        }
+        .to_string();
 
         if let Some(loader) = self.loaders.get(&extension) {
             loader.load(options)

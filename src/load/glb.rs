@@ -3,7 +3,7 @@ use crate::load::{
     Orthographic, Perspective, SceneDescriptor, SkeletonDescriptor, SkinDescriptor, Target,
 };
 use crate::load::{CameraDescriptor, Projection};
-use crate::mat::{MaterialList, Texture, TextureDescriptor, TextureFormat, TextureSource};
+use crate::mat::{Flip, MaterialList, Texture, TextureDescriptor, TextureFormat, TextureSource};
 use crate::{LoadError, LoadResult};
 use glam::*;
 use gltf::{
@@ -12,29 +12,33 @@ use gltf::{
     mesh::util::{ReadIndices, ReadJoints, ReadTexCoords, ReadWeights},
     scene::Transform,
 };
-
-use std::collections::HashMap;
+use std::convert::TryFrom;
+use std::io::{BufReader, Cursor};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Copy, Clone)]
-pub struct GltfLoader {}
+pub struct GlbLoader {}
 
-impl std::fmt::Display for GltfLoader {
+impl std::fmt::Display for GlbLoader {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "gltf-loader")
     }
 }
 
-impl Default for GltfLoader {
+impl Default for GlbLoader {
     fn default() -> Self {
         Self {}
     }
 }
 
-impl Loader for GltfLoader {
+impl Loader for GlbLoader {
     fn name(&self) -> &'static str {
         "glTF loader"
     }
@@ -44,50 +48,57 @@ impl Loader for GltfLoader {
     }
 
     fn load(&self, options: LoadOptions) -> LoadResult {
-        let (document, buffers, images) = match {
-            match &options.source {
-                crate::load::LoadSource::Path(p) => gltf::import(p),
-                crate::load::LoadSource::String { source, .. } => gltf::import_slice(source),
+        let glb = match &options.source {
+            crate::load::LoadSource::Path(p) => {
+                let file = match std::fs::File::open(p) {
+                    Ok(f) => f,
+                    Err(_) => return LoadResult::None(LoadError::FileDoesNotExist(p.clone())),
+                };
+
+                match gltf::Glb::from_reader(&file) {
+                    Ok(g) => g,
+                    Err(_) => return LoadResult::None(LoadError::InvalidFile(p.clone())),
+                }
             }
-        } {
-            Ok(g) => g,
-            Err(e) => return LoadResult::None(LoadError::Error(Box::new(e))),
+            crate::load::LoadSource::String {
+                source, ..
+            } => {
+                let reader = BufReader::new(Cursor::new(source.as_bytes()));
+                match gltf::Glb::from_reader(reader) {
+                    Ok(g) => g,
+                    Err(_) => return LoadResult::None(LoadError::CouldNotParseSource),
+                }
+            }
         };
 
+        let document = &glb;
         let mut mat_list = MaterialList::new();
+
+        let base_path = match &options.source {
+            crate::load::LoadSource::Path(p) => {
+                p.parent().map(|f| f.to_path_buf()).unwrap_or_default()
+            }
+            crate::load::LoadSource::String { basedir, .. } => {
+                PathBuf::try_from(basedir).unwrap_or_default()
+            }
+        };
+
+        let gltf_buffers = match GltfBuffers::load_from_glb(&base_path, &glb) {
+            Ok(b) => b,
+            Err(e) => return LoadResult::None(e),
+        };
+
         let mut mat_mapping = HashMap::new();
 
-        let load_texture = |texture: &gltf::Texture| {
-            let img = images.get(texture.index())?;
-            Some(TextureSource::Loaded(Texture::from_bytes(
-                img.pixels.as_slice(),
-                img.width,
-                img.height,
-                match img.format {
-                    gltf::image::Format::R8 => TextureFormat::R,
-                    gltf::image::Format::R8G8 => TextureFormat::RG,
-                    gltf::image::Format::R8G8B8 => TextureFormat::RGB,
-                    gltf::image::Format::R8G8B8A8 => TextureFormat::RGBA,
-                    gltf::image::Format::B8G8R8 => TextureFormat::BGR,
-                    gltf::image::Format::B8G8R8A8 => TextureFormat::BGRA,
-                    gltf::image::Format::R16 => TextureFormat::R16,
-                    gltf::image::Format::R16G16 => TextureFormat::RG16,
-                    gltf::image::Format::R16G16B16 => TextureFormat::RGB16,
-                    gltf::image::Format::R16G16B16A16 => TextureFormat::RGBA16,
-                },
-                match img.format {
-                    gltf::image::Format::R8 => std::mem::size_of::<u8>(),
-                    gltf::image::Format::R8G8 => 2 * std::mem::size_of::<u8>(),
-                    gltf::image::Format::R8G8B8 => 3 * std::mem::size_of::<u8>(),
-                    gltf::image::Format::R8G8B8A8 => 4 * std::mem::size_of::<u8>(),
-                    gltf::image::Format::B8G8R8 => 3 * std::mem::size_of::<u8>(),
-                    gltf::image::Format::B8G8R8A8 => 4 * std::mem::size_of::<u8>(),
-                    gltf::image::Format::R16 => std::mem::size_of::<u16>(),
-                    gltf::image::Format::R16G16 => 2 * std::mem::size_of::<u16>(),
-                    gltf::image::Format::R16G16B16 => 3 * std::mem::size_of::<u16>(),
-                    gltf::image::Format::R16G16B16A16 => 4 * std::mem::size_of::<u16>(),
-                },
-            )))
+        let load_texture = |source: gltf::image::Source| match source {
+            gltf::image::Source::View { view, .. } => {
+                let texture_bytes = gltf_buffers.view(&glb, &view).expect("glTF texture bytes");
+                let texture = load_texture_from_memory(texture_bytes);
+                Some(TextureSource::Loaded(texture))
+            }
+            gltf::image::Source::Uri { uri, .. } => {
+                Some(TextureSource::Filesystem(base_path.join(uri), Flip::None))
+            }
         };
 
         document.materials().enumerate().for_each(|(i, m)| {
@@ -100,22 +111,22 @@ impl Loader for GltfLoader {
                 0.0,
                 TextureDescriptor {
                     albedo: match pbr.base_color_texture() {
-                        Some(tex) => load_texture(&tex.texture()),
+                        Some(tex) => load_texture(tex.texture().source().source()),
                         None => None,
                     },
                     normal: match m.normal_texture() {
-                        Some(tex) => load_texture(&tex.texture()),
+                        Some(tex) => load_texture(tex.texture().source().source()),
                         None => None,
                     },
                     metallic_roughness_map:  // TODO: Make sure this works correctly in renderers & modify other loaders to use similar kind of system
                     // The metalness values are sampled from the B channel.
                     // The roughness values are sampled from the G channel.
                     match pbr.metallic_roughness_texture() {
-                        Some(tex) => load_texture(&tex.texture()),
+                        Some(tex) => load_texture(tex.texture().source().source()),
                         None => None,
                     },
                     emissive_map: match m.emissive_texture() {
-                        Some(tex) => load_texture(&tex.texture()),
+                        Some(tex) => load_texture(tex.texture().source().source()),
                         None => None,
                     },
                     sheen_map: None,
@@ -139,8 +150,7 @@ impl Loader for GltfLoader {
                 let mut uvs: Vec<[f32; 2]> = Vec::new();
 
                 mesh.primitives().for_each(|prim| {
-                    let reader =
-                        prim.reader(|buffer| buffers.get(buffer.index()).map(|b| b.0.as_slice()));
+                    let reader = prim.reader(|buffer| gltf_buffers.buffer(&glb, &buffer));
                     if let Some(iter) = reader.read_positions() {
                         for pos in iter {
                             vertices.push([pos[0], pos[1], pos[2], 1.0]);
@@ -336,8 +346,7 @@ impl Loader for GltfLoader {
                 .channels()
                 .map(|c| {
                     let mut channel = Channel::default();
-                    let reader =
-                        c.reader(|buffer| buffers.get(buffer.index()).map(|b| b.0.as_slice()));
+                    let reader = c.reader(|buffer| gltf_buffers.buffer(&glb, &buffer));
 
                     channel.sampler = match c.sampler().interpolation() {
                         Interpolation::Linear => Method::Linear,
@@ -476,7 +485,7 @@ impl Loader for GltfLoader {
         for scene in document.scenes().into_iter() {
             // Iterate over root nodes.
             for node in scene.nodes() {
-                nodes.push(load_node(&document, &buffers, &node));
+                nodes.push(load_node(&glb, &gltf_buffers, &node));
             }
         }
 
@@ -491,11 +500,7 @@ impl Loader for GltfLoader {
     }
 }
 
-fn load_node(
-    gltf: &gltf::Document,
-    gltf_buffers: &[gltf::buffer::Data],
-    node: &gltf::Node,
-) -> NodeDescriptor {
+fn load_node(gltf: &gltf::Gltf, gltf_buffers: &GltfBuffers, node: &gltf::Node) -> NodeDescriptor {
     let (scale, rotation, translation): ([f32; 3], [f32; 4], [f32; 3]) = match node.transform() {
         Transform::Matrix { matrix } => {
             let (scale, rotation, translation) =
@@ -523,7 +528,7 @@ fn load_node(
             .collect();
 
         let mut inverse_bind_matrices = vec![];
-        let reader = s.reader(|buffer| gltf_buffers.get(buffer.index()).map(|d| d.0.as_slice()));
+        let reader = s.reader(|buffer| gltf_buffers.buffer(gltf, &buffer));
         if let Some(ibm) = reader.read_inverse_bind_matrices() {
             ibm.for_each(|m| {
                 let mat = Mat4::from_cols_array_2d(&m);
@@ -584,11 +589,112 @@ fn load_node(
     }
 }
 
+fn load_texture_from_memory(texture_bytes: &[u8]) -> Texture {
+    use image::DynamicImage::*;
+    use image::GenericImageView;
+
+    let image = image::load_from_memory(texture_bytes).unwrap();
+    let width = image.width();
+    let height = image.height();
+    let (format, bytes_per_px) = match image {
+        ImageLuma8(_) => (TextureFormat::R, 1),
+        ImageLumaA8(_) => (TextureFormat::RG, 2),
+        ImageRgb8(_) => (TextureFormat::RGB, 3),
+        ImageRgba8(_) => (TextureFormat::RGBA, 4),
+        ImageBgr8(_) => (TextureFormat::BGR, 3),
+        ImageBgra8(_) => (TextureFormat::BGRA, 4),
+        ImageLuma16(_) => (TextureFormat::R16, 2),
+        ImageLumaA16(_) => (TextureFormat::RG16, 4),
+        ImageRgb16(_) => (TextureFormat::RGB16, 6),
+        ImageRgba16(_) => (TextureFormat::RGBA16, 8),
+    };
+
+    Texture::from_bytes(&image.to_bytes(), width, height, format, bytes_per_px)
+}
+
+struct GltfBuffers {
+    pub uri_buffers: Vec<Option<Vec<u8>>>,
+}
+
+impl GltfBuffers {
+    pub fn load_from_glb(
+        base_path: impl AsRef<Path>,
+        gltf: &gltf::Glb,
+    ) -> Result<Self, LoadError> {
+        use gltf::buffer::Source;
+        use std::io::Read;
+
+        let mut buffers = vec![];
+        for (_index, buffer) in gltf.buffers().enumerate() {
+            let data = match buffer.source() {
+                Source::Uri(uri) => {
+                    if uri.starts_with("data:") {
+                        unimplemented!();
+                    } else {
+                        let path = base_path.as_ref().join(uri);
+                        let mut file = std::fs::File::open(&path)
+                            .map_err(|_| LoadError::FileDoesNotExist(path.clone()))?;
+                        let metadata = file
+                            .metadata()
+                            .map_err(|_| LoadError::FileDoesNotExist(path.clone()))?;
+                        let mut data: Vec<u8> = Vec::with_capacity(metadata.len() as usize);
+                        file.read_to_end(&mut data)
+                            .map_err(|_| LoadError::FileDoesNotExist(path.clone()))?;
+
+                        assert!(data.len() >= buffer.length());
+
+                        Some(data)
+                    }
+                }
+                Source::Bin => None,
+            };
+
+            buffers.push(data);
+        }
+        Ok(GltfBuffers {
+            uri_buffers: buffers,
+        })
+    }
+
+    /// Obtain the contents of a loaded buffer.
+    pub fn buffer<'a>(
+        &'a self,
+        gltf: &'a gltf::Gltf,
+        buffer: &gltf::Buffer<'_>,
+    ) -> Option<&'a [u8]> {
+        use gltf::buffer::Source;
+
+        match buffer.source() {
+            Source::Uri(_) => self
+                .uri_buffers
+                .get(buffer.index())
+                .map(Option::as_ref)
+                .flatten()
+                .map(Vec::as_slice),
+            Source::Bin => gltf.blob.as_deref(),
+        }
+    }
+
+    /// Obtain the contents of a loaded buffer view.
+    #[allow(unused)]
+    pub fn view<'a>(
+        &'a self,
+        gltf: &'a gltf::Gltf,
+        view: &gltf::buffer::View<'_>,
+    ) -> Option<&'a [u8]> {
+        self.buffer(gltf, &view.buffer()).map(|data| {
+            let begin = view.offset();
+            let end = begin + view.length();
+            &data[begin..end]
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::Loader;
-    use crate::load::gltf::GltfLoader;
     use crate::load::*;
+    use crate::load::gltf::GltfLoader;
     use core::panic;
     use rtbvh::Aabb;
     use std::path::PathBuf;
@@ -608,8 +714,6 @@ mod tests {
         };
 
         assert_eq!(scene.meshes.len(), 1);
-        assert_eq!(scene.materials.len_textures(), 1);
-
         let m = &scene.meshes[0];
         assert_eq!(m.vertices.len(), 14016);
         assert_eq!(m.vertices.len(), m.normals.len());
@@ -636,7 +740,7 @@ mod tests {
         let loader = GltfLoader::default();
         let gltf = loader.load(LoadOptions {
             source: LoadSource::String {
-                source: include_bytes!("../../assets/CesiumMan.glb"),
+                source: include_str!("../../assets/CesiumMan.gltf"),
                 extension: "gtlf",
                 basedir: "assets",
             },
@@ -646,14 +750,10 @@ mod tests {
         let scene = match gltf {
             crate::LoadResult::Mesh(_) => panic!("glTF loader should only return scenes"),
             crate::LoadResult::Scene(s) => s,
-            crate::LoadResult::None(_) => {
-                panic!("glTF loader should successfully load scenes from strings")
-            }
+            crate::LoadResult::None(_) => panic!("glTF loader should successfully load scenes"),
         };
 
         assert_eq!(scene.meshes.len(), 1);
-        assert_eq!(scene.materials.len_textures(), 1);
-
         let m = &scene.meshes[0];
         assert_eq!(m.vertices.len(), 14016);
         assert_eq!(m.vertices.len(), m.normals.len());
@@ -690,8 +790,6 @@ mod tests {
         };
 
         assert_eq!(scene.meshes.len(), 1);
-        assert_eq!(scene.materials.len_textures(), 1);
-
         let m = &scene.meshes[0];
         assert_eq!(m.vertices.len(), 14016);
         assert_eq!(m.vertices.len(), m.normals.len());

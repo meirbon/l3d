@@ -57,7 +57,7 @@ impl Loader for ObjLoader {
             crate::load::LoadSource::Path(p) => tobj::load_obj(&p, &obj_options),
             crate::load::LoadSource::String { source, .. } => {
                 use std::io::BufReader;
-                tobj::load_obj_buf(&mut BufReader::new(source.as_bytes()), &obj_options, |p| {
+                tobj::load_obj_buf(&mut BufReader::new(*source), &obj_options, |p| {
                     if let Some(f) = p.file_name().and_then(|f| f.to_str()) {
                         let f = if let Ok(f) = File::open(parent.join(PathBuf::from(f))) {
                             f
@@ -92,9 +92,7 @@ impl Loader for ObjLoader {
             let mut color = Vec3::from(material.diffuse);
             let specular = Vec3::from(material.specular);
 
-            let roughness = (1.0 - material.shininess.log10() / 1000.0)
-                .max(0.0)
-                .min(1.0);
+            let roughness = (1.0_f32 - material.shininess.log10() / 1000.0_f32).clamp(0.0, 1.0);
             let opacity = 1.0 - material.dissolve;
             let eta = material.optical_density;
 
@@ -344,7 +342,7 @@ mod tests {
         let loader = ObjLoader::default();
         let sphere = loader.load(LoadOptions {
             source: LoadSource::String {
-                source: include_str!("../../assets/sphere.obj"),
+                source: include_bytes!("../../assets/sphere.obj"),
                 extension: "obj",
                 basedir: "assets",
             },

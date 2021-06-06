@@ -8,6 +8,7 @@ use std::{fmt::{Debug, Display}, path::{Path, PathBuf}};
 use serde::{Deserialize, Serialize};
 
 pub mod gltf;
+// pub mod glb;
 pub mod obj;
 
 pub trait Loader: Debug {
@@ -24,7 +25,7 @@ pub enum LoadSource<'a> {
     /// to load e.g. materials and/or textures.
     String {
         /// The source of the file.
-        source: &'a str,
+        source: &'a [u8],
         /// Which file loader to use. Loaders for the extension must exist.
         /// Extensions must be passed without a '.', e.g. 'obj' or 'gltf'.
         extension: &'a str,
