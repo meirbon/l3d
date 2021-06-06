@@ -6,7 +6,7 @@ use crate::{
     LoadError, LoadResult,
 };
 use glam::*;
-use std::path::PathBuf;
+use std::{convert::TryFrom, fs::File, path::PathBuf};
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -37,12 +37,54 @@ impl Loader for ObjLoader {
     }
 
     fn load(&self, options: LoadOptions) -> LoadResult {
-        let object = tobj::load_obj(&options.path);
+        let obj_options = tobj::LoadOptions {
+            single_index: true,
+            triangulate: true,
+            ignore_points: false,
+            ignore_lines: false,
+        };
+
+        let parent = match &options.source {
+            crate::load::LoadSource::Path(p) => {
+                p.parent().map(|f| f.to_path_buf()).unwrap_or_default()
+            }
+            crate::load::LoadSource::String { basedir, .. } => {
+                PathBuf::try_from(basedir).unwrap_or_default()
+            }
+        };
+
+        let object = match &options.source {
+            crate::load::LoadSource::Path(p) => tobj::load_obj(&p, &obj_options),
+            crate::load::LoadSource::String { source, .. } => {
+                use std::io::BufReader;
+                tobj::load_obj_buf(&mut BufReader::new(source.as_bytes()), &obj_options, |p| {
+                    if let Some(f) = p.file_name().and_then(|f| f.to_str()) {
+                        let f = if let Ok(f) = File::open(parent.join(PathBuf::from(f))) {
+                            f
+                        } else {
+                            return tobj::MTLLoadResult::Err(tobj::LoadError::ReadError);
+                        };
+                        tobj::load_mtl_buf(&mut BufReader::new(f))
+                    } else {
+                        tobj::MTLLoadResult::Err(tobj::LoadError::ReadError)
+                    }
+                })
+            }
+        };
+
         if object.is_err() {
-            return LoadResult::None(LoadError::FileDoesNotExist(options.path));
+            match &options.source {
+                crate::load::LoadSource::Path(p) => {
+                    return LoadResult::None(LoadError::FileDoesNotExist(p.clone()))
+                }
+                crate::load::LoadSource::String { .. } => {
+                    return LoadResult::None(LoadError::CouldNotParseSource)
+                }
+            }
         }
 
         let (models, materials) = object.unwrap();
+        let materials = materials.unwrap_or_default();
         let mut material_indices: Vec<i32> = vec![-1; materials.len()];
         let mut mat_manager = MaterialList::new();
 
@@ -55,12 +97,6 @@ impl Loader for ObjLoader {
                 .min(1.0);
             let opacity = 1.0 - material.dissolve;
             let eta = material.optical_density;
-
-            let parent = if let Some(p) = options.path.parent() {
-                p.to_path_buf()
-            } else {
-                PathBuf::new()
-            };
 
             let d_path = if material.diffuse_texture.is_empty() {
                 None
@@ -93,7 +129,7 @@ impl Loader for ObjLoader {
                         }
 
                         let mut value: Vec3A = Vec3A::from(f_values);
-                        if !value.cmpeq(Vec3A::zero()).all() && value.cmple(Vec3A::one()).all() {
+                        if !value.cmpeq(Vec3A::ZERO).all() && value.cmple(Vec3A::ONE).all() {
                             value *= Vec3A::splat(10.0);
                         }
 
@@ -250,19 +286,17 @@ impl Loader for ObjLoader {
 
 #[cfg(test)]
 mod tests {
-    use rtbvh::AABB;
-
-    use super::Loader;
-    use super::ObjLoader;
-    use crate::load::LoadOptions;
+    use super::*;
+    use crate::load::*;
     use core::panic;
+    use rtbvh::Aabb;
     use std::path::PathBuf;
 
     #[test]
     fn load_obj_works() {
         let loader = ObjLoader::default();
         let sphere = loader.load(LoadOptions {
-            path: PathBuf::from("assets/sphere.obj"),
+            source: LoadSource::Path(PathBuf::from("assets/sphere.obj")),
             ..Default::default()
         });
 
@@ -273,9 +307,60 @@ mod tests {
         };
 
         // Bounds should be correct
-        let mut aabb = AABB::new();
+        let mut aabb: Aabb<()> = Aabb::default();
         for v in m.vertices.iter() {
-            aabb.grow([v[0], v[1], v[2]]);
+            aabb.grow(vec3(v[0], v[1], v[2]));
+        }
+        for i in 0..3 {
+            assert!((aabb.min[i] - m.bounds.min[i]).abs() < f32::EPSILON);
+            assert!((aabb.max[i] - m.bounds.max[i]).abs() < f32::EPSILON);
+        }
+
+        assert_eq!(960 * 3, m.vertices.len(), "The sphere object has 960 faces");
+        assert_eq!(
+            m.vertices.len(),
+            m.normals.len(),
+            "Number of vertices and normals should be equal"
+        );
+        assert_eq!(
+            m.vertices.len(),
+            m.uvs.len(),
+            "Number of vertices and uvs should be equal"
+        );
+        assert_eq!(
+            m.vertices.len(),
+            m.tangents.len(),
+            "Number of vertices and tangents should be equal"
+        );
+        assert_eq!(
+            m.vertices.len(),
+            m.material_ids.len(),
+            "Number of vertices and material ids should be equal"
+        );
+    }
+
+    #[test]
+    fn load_obj_source_works() {
+        let loader = ObjLoader::default();
+        let sphere = loader.load(LoadOptions {
+            source: LoadSource::String {
+                source: include_str!("../../assets/sphere.obj"),
+                extension: "obj",
+                basedir: "assets",
+            },
+            ..Default::default()
+        });
+
+        let m = match sphere {
+            crate::LoadResult::Mesh(m) => m,
+            crate::LoadResult::Scene(_) => panic!("Obj loader should only return meshes"),
+            crate::LoadResult::None(_) => panic!("Obj loader should successfully load meshes"),
+        };
+
+        // Bounds should be correct
+        let mut aabb: Aabb<()> = Aabb::default();
+        for v in m.vertices.iter() {
+            aabb.grow(vec3(v[0], v[1], v[2]));
         }
         for i in 0..3 {
             assert!((aabb.min[i] - m.bounds.min[i]).abs() < f32::EPSILON);
@@ -310,7 +395,7 @@ mod tests {
         // TODO: This does not work yet
         let loader = ObjLoader::default();
         let sphere = loader.load(LoadOptions {
-            path: PathBuf::from("assets/sphere.obj"),
+            source: LoadSource::Path(PathBuf::from("assets/sphere.obj")),
             with_normals: false,
             with_tangents: false,
             with_materials: false,
@@ -323,9 +408,9 @@ mod tests {
         };
 
         // Bounds should be correct
-        let mut aabb = AABB::new();
+        let mut aabb: Aabb<()> = Aabb::new();
         for v in m.vertices.iter() {
-            aabb.grow([v[0], v[1], v[2]]);
+            aabb.grow(vec3(v[0], v[1], v[2]));
         }
         for i in 0..3 {
             assert!((aabb.min[i] - m.bounds.min[i]).abs() < f32::EPSILON);

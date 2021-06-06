@@ -1,11 +1,8 @@
 use crate::{mat::MaterialList, LoadResult};
 use glam::*;
 use rayon::prelude::*;
-use rtbvh::{Bounds, AABB};
-use std::{
-    fmt::{Debug, Display},
-    path::PathBuf,
-};
+use rtbvh::{Aabb, Bounds};
+use std::{fmt::{Debug, Display}, path::{Path, PathBuf}};
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -20,8 +17,31 @@ pub trait Loader: Debug {
 }
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct LoadOptions {
-    pub path: PathBuf,
+pub enum LoadSource<'a> {
+    /// Loads an object by reading a file from the given path.
+    Path(PathBuf),
+    /// Loads an object by parsing the given source. To load materials and textures, a basedir can be passed
+    /// to load e.g. materials and/or textures.
+    String {
+        /// The source of the file.
+        source: &'a str,
+        /// Which file loader to use. Loaders for the extension must exist.
+        /// Extensions must be passed without a '.', e.g. 'obj' or 'gltf'.
+        extension: &'a str,
+        /// The base directory to be used to load extras like textures and materials.
+        basedir: &'a str,
+    },
+}
+
+impl<T: AsRef<Path>> From<T> for LoadSource<'_> {
+    fn from(source: T) -> Self {
+        Self::Path(source.as_ref().to_path_buf())
+    }
+}
+
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct LoadOptions<'a> {
+    pub source: LoadSource<'a>,
     /// Whether to load/generate normals if they are not part of the 3D file
     pub with_normals: bool,
     /// Whether to load/generate tangents if they are not part of the 3D file
@@ -30,10 +50,10 @@ pub struct LoadOptions {
     pub with_materials: bool,
 }
 
-impl Default for LoadOptions {
+impl<'a> Default for LoadOptions<'a> {
     fn default() -> Self {
         Self {
-            path: PathBuf::new(),
+            source: LoadSource::Path(PathBuf::new()),
             with_normals: true,
             with_tangents: true,
             with_materials: true,
@@ -47,7 +67,7 @@ pub struct VertexMesh {
     pub first: u32,
     pub last: u32,
     pub mat_id: i32,
-    pub bounds: AABB,
+    pub bounds: Aabb,
 }
 
 impl Display for VertexMesh {
@@ -392,7 +412,7 @@ pub struct MeshDescriptor {
     pub materials: Option<MaterialList>,
     pub meshes: Vec<VertexMesh>,
     pub skeleton: Option<SkeletonDescriptor>,
-    pub bounds: AABB,
+    pub bounds: Aabb,
     pub name: String,
 }
 
@@ -550,10 +570,10 @@ impl MeshDescriptor {
         debug_assert_eq!(uvs.len(), material_ids.len());
         debug_assert_eq!(vertices.len() % 3, 0);
 
-        let mut bounds = AABB::new();
+        let mut bounds = Aabb::new();
 
         // Generate normals
-        let normals: Vec<[f32; 3]> = if Vec3::from(normals[0]).cmpeq(Vec3::zero()).all() {
+        let normals: Vec<[f32; 3]> = if Vec3::from(normals[0]).cmpeq(Vec3::ZERO).all() {
             let mut normals = vec![[0.0_f32; 3]; vertices.len()];
             for i in (0..vertices.len()).step_by(3) {
                 let v0 = Vec3::new(vertices[i][0], vertices[i][1], vertices[i][2]);
@@ -655,11 +675,11 @@ impl MeshDescriptor {
         let mut start = 0;
         let mut range = 0;
         let mut meshes: Vec<VertexMesh> = Vec::new();
-        let mut v_bounds = AABB::new();
+        let mut v_bounds = Aabb::new();
 
         for i in 0..material_ids.len() {
             range += 1;
-            v_bounds.grow([vertices[i][0], vertices[i][1], vertices[i][2]]);
+            v_bounds.grow(vec3(vertices[i][0], vertices[i][1], vertices[i][2]));
 
             if last_id != material_ids[i] {
                 meshes.push(VertexMesh {
@@ -669,7 +689,7 @@ impl MeshDescriptor {
                     bounds: v_bounds,
                 });
 
-                v_bounds = AABB::new();
+                v_bounds = Aabb::new();
                 last_id = material_ids[i];
                 start = i as u32;
                 range = 1;
@@ -740,7 +760,7 @@ impl MeshDescriptor {
             materials: None,
             meshes: Vec::new(),
             skeleton: None,
-            bounds: AABB::new(),
+            bounds: Aabb::new(),
             name: String::new(),
         }
     }
@@ -762,7 +782,7 @@ impl MeshDescriptor {
 }
 
 impl Bounds for MeshDescriptor {
-    fn bounds(&self) -> AABB {
+    fn bounds(&self) -> Aabb {
         self.bounds
     }
 }

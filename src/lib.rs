@@ -22,6 +22,8 @@ pub enum LoadResult {
 #[derive(Debug, Clone)]
 pub enum LoadError {
     NoFileExtension,
+    CouldNotParseSource,
+    CouldNotParseExtension,
     UnsupportedExtension(String),
     FileDoesNotExist(PathBuf),
     InvalidFile(PathBuf),
@@ -41,6 +43,8 @@ impl Display for LoadError {
                 LoadError::InvalidFile(file) =>
                     format!("File might be corrupted: {}", file.display()),
                 LoadError::NoFileExtension => String::from("No file extension"),
+                LoadError::CouldNotParseSource => String::from("Could not parse given source"),
+                LoadError::CouldNotParseExtension => String::from("Could not parse file extension"),
                 LoadError::UnsupportedExtension(ext) =>
                     format!("Unsupported file extension: {}", ext),
             }
@@ -90,16 +94,25 @@ impl LoadInstance {
 
     /// Loads file given in LoadOptions
     pub fn load(&self, options: LoadOptions) -> LoadResult {
-        let ext = match options.path.extension() {
-            Some(e) => e,
-            None => return LoadResult::None(LoadError::NoFileExtension),
-        };
+        let extension = match &options.source {
+            load::LoadSource::Path(path) => {
+                match path.extension() {
+                    Some(e) => match e.to_str() {
+                        Some(e) => e,
+                        None => return LoadResult::None(LoadError::NoFileExtension),
+                    },
+                    None => return LoadResult::None(LoadError::NoFileExtension),
+                }
+            },
+            load::LoadSource::String {  extension, .. } => {
+                extension
+            },
+        }.to_string();
 
-        let ext = ext.to_str().unwrap().to_string();
-        if let Some(loader) = self.loaders.get(&ext) {
+        if let Some(loader) = self.loaders.get(&extension) {
             loader.load(options)
         } else {
-            LoadResult::None(LoadError::UnsupportedExtension(ext))
+            LoadResult::None(LoadError::UnsupportedExtension(extension))
         }
     }
 }

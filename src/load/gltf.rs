@@ -12,6 +12,8 @@ use gltf::{
     mesh::util::{ReadIndices, ReadJoints, ReadTexCoords, ReadWeights},
     scene::Transform,
 };
+use std::convert::TryFrom;
+use std::io::{BufReader, Cursor};
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
@@ -46,21 +48,41 @@ impl Loader for GltfLoader {
     }
 
     fn load(&self, options: LoadOptions) -> LoadResult {
-        let file = match std::fs::File::open(&options.path) {
-            Ok(f) => f,
-            Err(_) => return LoadResult::None(LoadError::FileDoesNotExist(options.path)),
+        let gltf = match &options.source {
+            crate::load::LoadSource::Path(p) => {
+                let file = match std::fs::File::open(p) {
+                    Ok(f) => f,
+                    Err(_) => return LoadResult::None(LoadError::FileDoesNotExist(p.clone())),
+                };
+
+                match gltf::Gltf::from_reader(&file) {
+                    Ok(g) => g,
+                    Err(_) => return LoadResult::None(LoadError::InvalidFile(p.clone())),
+                }
+            }
+            crate::load::LoadSource::String {
+                source, ..
+            } => {
+                let reader = BufReader::new(Cursor::new(source.as_bytes()));
+                match gltf::Gltf::from_reader(reader) {
+                    Ok(g) => g,
+                    Err(_) => return LoadResult::None(LoadError::CouldNotParseSource),
+                }
+            }
         };
-        let gltf = match gltf::Gltf::from_reader(&file) {
-            Ok(g) => g,
-            Err(_) => return LoadResult::None(LoadError::InvalidFile(options.path)),
-        };
+
         let document = &gltf;
         let mut mat_list = MaterialList::new();
 
-        let base_path = match options.path.parent() {
-            Some(p) => p.to_path_buf(),
-            None => PathBuf::from(""),
+        let base_path = match &options.source {
+            crate::load::LoadSource::Path(p) => {
+                p.parent().map(|f| f.to_path_buf()).unwrap_or_default()
+            }
+            crate::load::LoadSource::String { basedir, .. } => {
+                PathBuf::try_from(basedir).unwrap_or_default()
+            }
         };
+
         let gltf_buffers = match GltfBuffers::load_from_gltf(&base_path, &gltf) {
             Ok(b) => b,
             Err(e) => return LoadResult::None(e),
@@ -68,21 +90,15 @@ impl Loader for GltfLoader {
 
         let mut mat_mapping = HashMap::new();
 
-        let parent_folder = match options.path.parent() {
-            Some(parent) => parent.to_path_buf(),
-            None => PathBuf::from(""),
-        };
-
         let load_texture = |source: gltf::image::Source| match source {
             gltf::image::Source::View { view, .. } => {
                 let texture_bytes = gltf_buffers.view(&gltf, &view).expect("glTF texture bytes");
                 let texture = load_texture_from_memory(texture_bytes);
                 Some(TextureSource::Loaded(texture))
             }
-            gltf::image::Source::Uri { uri, .. } => Some(TextureSource::Filesystem(
-                parent_folder.join(uri),
-                Flip::None,
-            )),
+            gltf::image::Source::Uri { uri, .. } => {
+                Some(TextureSource::Filesystem(base_path.join(uri), Flip::None))
+            }
         };
 
         document.materials().enumerate().for_each(|(i, m)| {
@@ -512,7 +528,7 @@ fn load_node(gltf: &gltf::Gltf, gltf_buffers: &GltfBuffers, node: &gltf::Node) -
             .collect();
 
         let mut inverse_bind_matrices = vec![];
-        let reader = s.reader(|buffer| gltf_buffers.buffer(&gltf, &buffer));
+        let reader = s.reader(|buffer| gltf_buffers.buffer(gltf, &buffer));
         if let Some(ibm) = reader.read_inverse_bind_matrices() {
             ibm.for_each(|m| {
                 let mat = Mat4::from_cols_array_2d(&m);
@@ -677,17 +693,17 @@ impl GltfBuffers {
 #[cfg(test)]
 mod tests {
     use super::Loader;
+    use crate::load::*;
     use crate::load::gltf::GltfLoader;
-    use crate::load::LoadOptions;
     use core::panic;
-    use rtbvh::AABB;
+    use rtbvh::Aabb;
     use std::path::PathBuf;
 
     #[test]
     fn load_gltf_works() {
         let loader = GltfLoader::default();
         let gltf = loader.load(LoadOptions {
-            path: PathBuf::from("assets/CesiumMan.gltf"),
+            source: LoadSource::Path(PathBuf::from("assets/CesiumMan.gltf")),
             ..Default::default()
         });
 
@@ -709,9 +725,49 @@ mod tests {
         assert!(m.skeleton.is_some());
 
         // Bounds should be correct
-        let mut aabb = AABB::new();
+        let mut aabb: Aabb<()> = Aabb::new();
         for v in m.vertices.iter() {
-            aabb.grow([v[0], v[1], v[2]]);
+            aabb.grow(vec3(v[0], v[1], v[2]));
+        }
+        for i in 0..3 {
+            assert!((aabb.min[i] - m.bounds.min[i]).abs() < f32::EPSILON);
+            assert!((aabb.max[i] - m.bounds.max[i]).abs() < f32::EPSILON);
+        }
+    }
+
+    #[test]
+    fn load_gltf_source_works() {
+        let loader = GltfLoader::default();
+        let gltf = loader.load(LoadOptions {
+            source: LoadSource::String {
+                source: include_str!("../../assets/CesiumMan.gltf"),
+                extension: "gtlf",
+                basedir: "assets",
+            },
+            ..Default::default()
+        });
+
+        let scene = match gltf {
+            crate::LoadResult::Mesh(_) => panic!("glTF loader should only return scenes"),
+            crate::LoadResult::Scene(s) => s,
+            crate::LoadResult::None(_) => panic!("glTF loader should successfully load scenes"),
+        };
+
+        assert_eq!(scene.meshes.len(), 1);
+        let m = &scene.meshes[0];
+        assert_eq!(m.vertices.len(), 14016);
+        assert_eq!(m.vertices.len(), m.normals.len());
+        assert_eq!(m.normals.len(), m.uvs.len());
+        assert_eq!(m.uvs.len(), m.tangents.len());
+        assert_eq!(m.tangents.len(), m.material_ids.len());
+
+        assert_eq!(m.meshes.len(), 1);
+        assert!(m.skeleton.is_some());
+
+        // Bounds should be correct
+        let mut aabb: Aabb<()> = Aabb::new();
+        for v in m.vertices.iter() {
+            aabb.grow(vec3(v[0], v[1], v[2]));
         }
         for i in 0..3 {
             assert!((aabb.min[i] - m.bounds.min[i]).abs() < f32::EPSILON);
