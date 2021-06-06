@@ -1,6 +1,6 @@
 [package]
 name = "l3d"
-version = "0.2.0"
+version = "0.2.1"
 authors = ["Mèir Noordermeer <meirnoordermeer@me.com>"]
 edition = "2018"
 description = "Library for loading 3D objects."
