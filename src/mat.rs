@@ -824,6 +824,10 @@ impl Texture {
         }
 
         let mut data = vec![0_u32; (width * height) as usize];
+        let convert_to_u8 = |p: u32| -> u32 {
+            (((p as f32 / u16::MAX as f32) * 255.0) as u32).clamp(0, 255)
+        };
+
         for y in 0..height {
             for x in 0..width {
                 let index = (x + y * width) as usize;
@@ -835,13 +839,13 @@ impl Texture {
                         bytes[orig_index + 2] as u32,
                         bytes[orig_index + 1] as u32,
                         bytes[orig_index] as u32,
-                        0,
+                        255,
                     ),
                     TextureFormat::RGB => (
                         bytes[orig_index] as u32,
                         bytes[orig_index + 1] as u32,
                         bytes[orig_index + 2] as u32,
-                        0,
+                        255,
                     ),
                     TextureFormat::RGBA => (
                         bytes[orig_index] as u32,
@@ -856,28 +860,28 @@ impl Texture {
                         bytes[orig_index + 3] as u32,
                     ),
                     TextureFormat::R16 => (
-                        (bytes[orig_index] as u32) + ((bytes[orig_index + 1] as u32) << 16),
+                        convert_to_u8(bytes[orig_index] as u32) + ((bytes[orig_index + 1] as u32) << 16),
                         0,
                         0,
-                        0,
+                        255,
                     ),
                     TextureFormat::RG16 => (
-                        (bytes[orig_index] as u32) + ((bytes[orig_index + 1] as u32) << 16),
-                        (bytes[orig_index + 2] as u32) + ((bytes[orig_index + 3] as u32) << 16),
+                        convert_to_u8(bytes[orig_index] as u32) + ((bytes[orig_index + 1] as u32) << 16),
+                        convert_to_u8(bytes[orig_index + 2] as u32) + ((bytes[orig_index + 3] as u32) << 16),
                         0,
-                        0,
+                        255,
                     ),
                     TextureFormat::RGB16 => (
-                        (bytes[orig_index] as u32) + ((bytes[orig_index + 1] as u32) << 16),
-                        (bytes[orig_index + 2] as u32) + ((bytes[orig_index + 3] as u32) << 16),
-                        (bytes[orig_index + 4] as u32) + ((bytes[orig_index + 5] as u32) << 16),
-                        0,
+                        convert_to_u8(bytes[orig_index] as u32) + ((bytes[orig_index + 1] as u32) << 16),
+                        convert_to_u8(bytes[orig_index + 2] as u32) + ((bytes[orig_index + 3] as u32) << 16),
+                        convert_to_u8(bytes[orig_index + 4] as u32) + ((bytes[orig_index + 5] as u32) << 16),
+                        255,
                     ),
                     TextureFormat::RGBA16 => (
-                        (bytes[orig_index] as u32) + ((bytes[orig_index + 1] as u32) << 16),
-                        (bytes[orig_index + 2] as u32) + ((bytes[orig_index + 3] as u32) << 16),
-                        (bytes[orig_index + 4] as u32) + ((bytes[orig_index + 5] as u32) << 16),
-                        (bytes[orig_index + 6] as u32) + ((bytes[orig_index + 7] as u32) << 16),
+                        convert_to_u8(bytes[orig_index] as u32) + ((bytes[orig_index + 1] as u32) << 16),
+                        convert_to_u8(bytes[orig_index + 2] as u32) + ((bytes[orig_index + 3] as u32) << 16),
+                        convert_to_u8(bytes[orig_index + 4] as u32) + ((bytes[orig_index + 5] as u32) << 16),
+                        convert_to_u8(bytes[orig_index + 6] as u32) + ((bytes[orig_index + 7] as u32) << 16),
                     ),
                 };
 
